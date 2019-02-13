@@ -5,6 +5,8 @@ notifications:
 env:
   - RELEASE_TAG="release-$TRAVIS_BUILD_NUMBER"
 stages:
+  - build and publish
+  - deploy
   - migrate
 if: tag IS blank
 
