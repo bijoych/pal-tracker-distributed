@@ -25,7 +25,7 @@ class CfMigrationPlugin implements Plugin<Project> {
                         Thread.start {
                             tunnelProcess = "cf ssh -N -L 63306:${getMysqlHost(appName, databaseInstanceName)}:3306 $appName".execute()
                         }
-                        sleep 5_000L
+                        sleep 15_000L
                     }
                 }
 
@@ -62,7 +62,12 @@ class CfMigrationPlugin implements Plugin<Project> {
 
             extension.user = credentials["username"]
             extension.password = credentials["password"]
-            extension.url = "jdbc:mysql://127.0.0.1:63306/${credentials["name"]}"
+            extension.url = credentials["jdbcUrl"] //"jdbc:mysql://127.0.0.1:63306/${credentials["name"]}"
+            extension.url = extension.url.replaceFirst('jdbc:mysql://[^/]+', 'jdbc:mysql://127.0.0.1:63306')
+            extension.url = extension.url.replaceFirst(/user=.*?&password=.*?&/, '')
+            extension.url += '&verifyServerCertificate=false'
+
+            println "URL = ${extension.url}"
         }
 
         extension.locations = ["filesystem:$project.projectDir/migrations"]
@@ -71,9 +76,11 @@ class CfMigrationPlugin implements Plugin<Project> {
 
     private static def getMysqlCredentials(cfAppName, databaseInstanceName) {
         def appGuid = execute("cf app $cfAppName --guid").trim()
-        def envResponse = execute("cf curl /v2/apps/$appGuid/env")
-        def envJson = new JsonSlurper().parseText(envResponse)
-        def vcapServicesMap = envJson["system_env_json"]?.getAt("VCAP_SERVICES")
+        //def envResponse = execute("cf curl /v2/apps/$appGuid/env")
+        //def envJson = new JsonSlurper().parseText(envResponse)
+        //def vcapServicesMap = envJson["system_env_json"]?.getAt("VCAP_SERVICES")
+        def vcapEnv = executeList(['cf', 'ssh', cfAppName, '-c', 'perl -0 -ne "print if (s/^VCAP_SERVICES=//)" /proc/$(pgrep java)/environ'])
+        def vcapServicesMap = new JsonSlurper().parseText(vcapEnv)
 
         def entryWithDbInstance = vcapServicesMap
                 .find { key, value -> value.any { it["name"] == databaseInstanceName } }
@@ -86,6 +93,13 @@ class CfMigrationPlugin implements Plugin<Project> {
 
     private static String execute(String command) {
         def process = command.execute()
+        def output = process.text
+        process.waitFor()
+        return output
+    }
+
+    private static String executeList(List args) {
+        def process = args.execute()
         def output = process.text
         process.waitFor()
         return output
